@@ -46,11 +46,18 @@ pipeline {
             steps {
                 // One-time Node install per workspace. Skipped silently
                 // when .node/bin/node already exists (re-runs are fast).
+                //
+                // We pull the .tar.gz tarball (not .tar.xz) because the
+                // Jenkins LTS image (jenkins/jenkins:lts-jdk17) ships
+                // without xz-utils — `tar -xJ` then fails with
+                // "xz: Cannot exec: No such file or directory". gzip
+                // is universal across base images, costs ~20% bigger
+                // download (~50MB vs 40MB) and avoids the dep entirely.
                 sh '''
                     if [ ! -x .node/bin/node ]; then
                       mkdir -p .node
-                      curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
-                        | tar -xJ --strip-components=1 -C .node
+                      curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" \
+                        | tar -xz --strip-components=1 -C .node
                     fi
                     node --version
                     npm --version
