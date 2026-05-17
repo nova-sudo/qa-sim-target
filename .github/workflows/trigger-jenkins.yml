@@ -1,0 +1,89 @@
+# Hook 1 — GitHub Actions → Jenkins (curl trigger)
+#
+# Fires on every PR and every push to main. Hits Jenkins' remote-
+# build URL through the ngrok tunnel using credentials stored as
+# GitHub repo secrets. Jenkins queues a build of qa-sim-target.
+#
+# Pair with .github/workflows/ci.yml which runs the same Jest suite
+# on GitHub-Actions-hosted runners — we keep them as separate jobs
+# so the two signal sources are independent: a flaky network blip
+# breaking Jenkins won't mark the PR red, and vice versa.
+#
+# Secret manifest (must exist under repo Settings → Secrets):
+#   JENKINS_BASE_URL              the ngrok tunnel URL,
+#                                  e.g. https://abc.ngrok-free.dev
+#   JENKINS_USER                  Jenkins login (NOT email — the
+#                                  username shown in /me)
+#   JENKINS_API_TOKEN             token from /me/configure → API Token
+#   JENKINS_REMOTE_TRIGGER_TOKEN  the string in the job's Build Triggers
+#                                  → "Authentication Token" field
+#
+# If any of these are missing, the curl returns 401/403/404 — see the
+# Actions log for the exact upstream response.
+#
+# ngrok-free tier serves a browser-warning HTML page to non-browser
+# clients unless we send the `ngrok-skip-browser-warning` header,
+# which we do here. On a real prod Jenkins (no tunnel), the header
+# is harmless to keep.
+
+name: trigger-jenkins
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+# Run sequentially per branch, but don't cancel in-flight triggers —
+# each one is a fire-and-forget POST, cancelling halfway gains nothing.
+concurrency:
+  group: trigger-jenkins-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Fire Jenkins remote build
+        env:
+          JENKINS_BASE_URL: ${{ secrets.JENKINS_BASE_URL }}
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+          REMOTE_TOKEN: ${{ secrets.JENKINS_REMOTE_TRIGGER_TOKEN }}
+          # Echoed into the Jenkins build cause so the build log
+          # shows where it came from. `cause` is consumed by the
+          # "Build Token Root Plugin"; vanilla Jenkins ignores it
+          # safely.
+          BUILD_CAUSE: "Triggered by GitHub Actions run ${{ github.run_id }} for ${{ github.event_name }} on ${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+
+          if [ -z "${JENKINS_BASE_URL:-}" ] || [ -z "${JENKINS_USER:-}" ] \
+             || [ -z "${JENKINS_API_TOKEN:-}" ] || [ -z "${REMOTE_TOKEN:-}" ]; then
+            echo "::error::One or more required secrets are missing. Set JENKINS_BASE_URL, JENKINS_USER, JENKINS_API_TOKEN, JENKINS_REMOTE_TRIGGER_TOKEN under Settings → Secrets → Actions."
+            exit 1
+          fi
+
+          # Strip any trailing slash on the base URL — Jenkins paths
+          # in this script always lead with /.
+          BASE="${JENKINS_BASE_URL%/}"
+          URL="${BASE}/job/qa-sim-target/build?token=${REMOTE_TOKEN}&cause=$(printf '%s' "${BUILD_CAUSE}" | jq -sRr @uri)"
+
+          echo "Triggering Jenkins build (base URL is masked in this log)…"
+
+          # -i: include headers so the response status line lands in
+          #     the Actions log
+          # --fail-with-body: exit non-zero on HTTP >= 400 but still
+          #                   print the body for debugging
+          # User-Agent identifies our runner in the Jenkins access log
+          curl -i \
+            --fail-with-body \
+            -X POST \
+            -H "ngrok-skip-browser-warning: 1" \
+            -H "User-Agent: github-actions/qa-sim-target/trigger-jenkins" \
+            -u "${JENKINS_USER}:${JENKINS_API_TOKEN}" \
+            "${URL}"
+
+          echo "::notice::Jenkins build queued. Watch http://<your-jenkins>/job/qa-sim-target/ for the run."
