@@ -60,6 +60,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Debug: print the byte-length of each secret. GitHub masks
+          # values, not numbers — so we can tell whether anything is
+          # genuinely empty (0) without revealing the contents. Remove
+          # these echoes once we confirm Hook 1 is working.
+          echo "len(JENKINS_BASE_URL)=$(printf '%s' "${JENKINS_BASE_URL:-}" | wc -c)"
+          echo "len(JENKINS_USER)=$(printf '%s' "${JENKINS_USER:-}" | wc -c)"
+          echo "len(JENKINS_API_TOKEN)=$(printf '%s' "${JENKINS_API_TOKEN:-}" | wc -c)"
+          echo "len(REMOTE_TOKEN)=$(printf '%s' "${REMOTE_TOKEN:-}" | wc -c)"
+
           if [ -z "${JENKINS_BASE_URL:-}" ] || [ -z "${JENKINS_USER:-}" ] \
              || [ -z "${JENKINS_API_TOKEN:-}" ] || [ -z "${REMOTE_TOKEN:-}" ]; then
             echo "::error::One or more required secrets are missing. Set JENKINS_BASE_URL, JENKINS_USER, JENKINS_API_TOKEN, JENKINS_REMOTE_TRIGGER_TOKEN under Settings → Secrets → Actions."
