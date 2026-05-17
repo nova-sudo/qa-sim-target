@@ -1,0 +1,24 @@
+{
+  "name": "qa-sim-target",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Test target for the eSpace Dev Hub QA Hub simulation. Realistic-ish Jest suite with deliberately mixed pass/fail/flake behaviour so Jenkins + GitHub Actions feed varied data back into the dashboard.",
+  "scripts": {
+    "test": "jest --ci --reporters=default --reporters=jest-junit"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["<rootDir>/tests/**/*.test.js"]
+  },
+  "jest-junit": {
+    "outputDirectory": "./reports",
+    "outputName": "junit.xml",
+    "classNameTemplate": "{classname}",
+    "titleTemplate": "{title}",
+    "ancestorSeparator": " › "
+  }
+}

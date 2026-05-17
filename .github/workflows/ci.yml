@@ -1,0 +1,62 @@
+# CI workflow for qa-sim-target.
+#
+# Runs Jest on every PR + every push to main. Publishes the JUnit
+# report as a workflow artifact so it can be inspected manually
+# without GitHub-Checks integration.
+#
+# A SECOND workflow (trigger-jenkins.yml, ships in the next PR) will
+# also fire a remote-build request at our Jenkins controller via
+# curl — that's the "Hook 1: GitHub Actions → Jenkins" path the QA
+# Hub demo simulates.
+#
+# Concurrency: cancels in-progress runs on the same branch when a
+# newer push comes in — keeps the actions queue tidy when someone
+# force-pushes to a PR.
+
+name: ci
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: ["main"]
+  # `workflow_dispatch` lets us re-run from the Actions UI any time
+  # without pushing a new commit. Handy for demo re-runs.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Test
+        # Don't `--bail` — we want every test to run so JUnit captures
+        # the full result set, even when one fails early.
+        run: npm test
+        env:
+          # Default flake rate of 20% for realism. Override per-run
+          # in workflow_dispatch inputs if you want a deterministic
+          # CI for an actual code change.
+          FLAKY_FAIL_RATE: "0.2"
+
+      - name: Upload JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jest-junit-${{ github.run_id }}
+          path: reports/junit.xml
+          if-no-files-found: warn
